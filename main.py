@@ -326,13 +326,13 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
 
     # -------- Bill-to block (single merged cell) --------
     bill_block_fmt = wb.add_format({
-        "font_name": FONT, "font_size": 11,
+        "font_name": FONT, "font_size": 10,
         "align": "left", "valign": "top",
         "font_color": BLACK, "bg_color": WHITE,
         "text_wrap": True
     })
     bill_title_bold = wb.add_format({
-        "font_name": FONT, "font_size": 16, "bold": True,
+        "font_name": FONT, "font_size": 14, "bold": True,
         "font_color": TEAL_2,
     })
     bill_name_bold = wb.add_format({
@@ -362,7 +362,7 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
 
     # -------- Table cells --------
     concept_w = wb.add_format({
-        "font_name": FONT, "font_size": 11,
+        "font_name": FONT, "font_size": 8,
         "align": "left", "valign": "vcenter",
         "font_color": BLACK,
         "text_wrap": True,
@@ -370,7 +370,7 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
         "border": 1, "border_color": GRID,
     })
     concept_g = wb.add_format({
-        "font_name": FONT, "font_size": 11,
+        "font_name": FONT, "font_size": 8,
         "align": "left", "valign": "vcenter",
         "font_color": BLACK,
         "text_wrap": True,
@@ -379,7 +379,7 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
     })
 
     money_w = wb.add_format({
-        "font_name": FONT, "font_size": 11,
+        "font_name": FONT, "font_size": 8,
         "align": "center", "valign": "vcenter",
         "font_color": BLACK,
         "bg_color": WHITE,
@@ -387,7 +387,7 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
         "num_format": f'"{payload.currency_symbol}"#,##0.00'
     })
     money_g = wb.add_format({
-        "font_name": FONT, "font_size": 11,
+        "font_name": FONT, "font_size": 8,
         "align": "center", "valign": "vcenter",
         "font_color": BLACK,
         "bg_color": LIGHT_GRAY,
@@ -395,7 +395,7 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
         "num_format": f'"{payload.currency_symbol}"#,##0.00'
     })
     money_red_w = wb.add_format({
-        "font_name": FONT, "font_size": 11,
+        "font_name": FONT, "font_size": 8,
         "align": "center", "valign": "vcenter",
         "font_color": RED,
         "bg_color": WHITE,
@@ -403,7 +403,7 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
         "num_format": f'"{payload.currency_symbol}"#,##0.00'
     })
     money_red_g = wb.add_format({
-        "font_name": FONT, "font_size": 11,
+        "font_name": FONT, "font_size": 8,
         "align": "center", "valign": "vcenter",
         "font_color": RED,
         "bg_color": LIGHT_GRAY,
@@ -412,14 +412,14 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
     })
 
     units_w = wb.add_format({
-        "font_name": FONT, "font_size": 11,
+        "font_name": FONT, "font_size": 8,
         "align": "center", "valign": "vcenter",
         "font_color": BLACK,
         "bg_color": WHITE,
         "border": 1, "border_color": GRID,
     })
     units_g = wb.add_format({
-        "font_name": FONT, "font_size": 11,
+        "font_name": FONT, "font_size": 8,
         "align": "center", "valign": "vcenter",
         "font_color": BLACK,
         "bg_color": LIGHT_GRAY,
@@ -433,7 +433,7 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
         "font_color": TEAL_2, "bg_color": WHITE
     })
     total_value_fmt = wb.add_format({
-        "font_name": FONT, "font_size": 18, "bold": True,
+        "font_name": FONT, "font_size": 12, "bold": True,
         "align": "center", "valign": "vcenter",
         "font_color": BLACK, "bg_color": WHITE,
         "num_format": f'"{payload.currency_symbol}"#,##0.00'
