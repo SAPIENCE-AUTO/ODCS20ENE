@@ -1,14 +1,13 @@
 # main.py
 # Sapience ODCs — Render + FastAPI — Excel only (XlsxWriter)
-# v1.1.0 (provider block + date in banner + bill-to compressed + advance as line item)
+# v2.0.0 — New layout (Provider block + date in banner + bill-to compressed + anticipo as line item)
 #
-# Changes vs v1.0.6:
-# - Date moved to top-right inside banner (no longer in left meta rows)
-# - Left block becomes "DATOS DEL PROVEEDOR" with fields: NOMBRE, RFC, E-MAIL, SERVICIO, PROYECTO
-# - Bill-to compressed into ONE merged cell (name + RFC + address)
-# - Advance/Anticipo becomes a row inside the Concepts table (negative amount)
-# - Summary becomes ONLY "TOTAL" (since anticipo is already in table)
-# - Keeps Terms page (Page 2) as-is
+# Changes:
+# - Banner: date on top-right (white text)
+# - Provider block: "DATOS DEL PROVEEDOR" + NOMBRE/RFC/E-MAIL/SERVICIO/PROYECTO
+# - Bill-to block: compressed into 1 merged cell with line breaks
+# - Summary: removes SUMA/ANTICIPO, keeps only TOTAL (items already include anticipo negative line)
+# - Keeps terms page (Page 2) as single column
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -26,7 +25,7 @@ from xlsxwriter.utility import xl_range
 
 from terms import TERMS_TITLE, TERMS_LEFT, TERMS_RIGHT
 
-app = FastAPI(title="Sapience ODCs (Excel)", version="1.1.0")
+app = FastAPI(title="Sapience ODCs (Excel)", version="2.0.0")
 
 
 # -----------------------------
@@ -40,15 +39,18 @@ class ODCItem(BaseModel):
 
 
 class ODCPayload(BaseModel):
-    # Header
     odc_number: str
-    date_str: str
+    date_str: str  # shown in banner top-right (e.g. "17 - nov - 2025")
 
-    # Provider block
-    provider: str  # provider name (kept for backwards compat)
-    provider_rfc: Optional[str] = ""
-    provider_email: Optional[str] = ""
+    # Provider block (NEW)
+    provider_name: Optional[str] = None
+    provider_rfc: Optional[str] = None
+    provider_email: Optional[str] = None
 
+    # Backward-compat (old)
+    provider: Optional[str] = None
+
+    # Service / Project
     service: str
     project: str
 
@@ -59,11 +61,11 @@ class ODCPayload(BaseModel):
     bill_to_address_1: str
     bill_to_address_2: str
 
-    # Items (concept rows)
+    # Items (includes anticipo as negative line item if applicable)
     items: List[ODCItem] = Field(default_factory=list)
 
-    # Advance (now becomes a line item if provided)
-    advance_amount: Optional[float] = None
+    # Total override (optional)
+    total_due: Optional[float] = None
 
     currency_symbol: str = "$"
 
@@ -248,12 +250,18 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
 
     # -------- Explicit white canvas --------
     white_bg = wb.add_format({"bg_color": WHITE})
-    fill_range(ws, 1, 1, 420, 50, white_bg)
+    fill_range(ws, 1, 1, 520, 50, white_bg)
 
     banner_fill = wb.add_format({"bg_color": TEAL})
     gray_fill = wb.add_format({"bg_color": LIGHT_GRAY})
 
-    # -------- Formats --------
+    # -------- Banner formats --------
+    date_banner_fmt = wb.add_format({
+        "font_name": FONT, "font_size": 10,
+        "align": "right", "valign": "top",
+        "font_color": WHITE, "bg_color": TEAL,
+    })
+
     odc_box_lbl = wb.add_format({
         "font_name": FONT, "font_size": 9, "bold": True,
         "align": "center", "valign": "vcenter",
@@ -267,71 +275,94 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
         "border": 1, "border_color": GRID_LIGHT,
     })
 
-    date_in_banner = wb.add_format({
-        "font_name": FONT, "font_size": 9,
-        "align": "right", "valign": "vcenter",
-        "font_color": WHITE, "bg_color": TEAL,
-    })
-
-    section_title = wb.add_format({
+    # -------- Provider section title --------
+    provider_title_fmt = wb.add_format({
         "font_name": FONT, "font_size": 16, "bold": True,
         "align": "left", "valign": "vcenter",
-        "font_color": TEAL_2, "bg_color": WHITE
+        "font_color": TEAL_2, "bg_color": WHITE,
     })
 
+    # Provider labels/values (striped)
     label_gray = wb.add_format({
-        "font_name": FONT, "font_size": 8, "bold": True,
+        "font_name": FONT, "font_size": 9, "bold": True,
         "align": "right", "valign": "vcenter",
         "font_color": TEAL_2, "bg_color": LIGHT_GRAY
     })
     label_white = wb.add_format({
-        "font_name": FONT, "font_size": 8, "bold": True,
+        "font_name": FONT, "font_size": 9, "bold": True,
         "align": "right", "valign": "vcenter",
         "font_color": TEAL_2, "bg_color": WHITE
     })
-
     value_gray_div = wb.add_format({
-        "font_name": FONT, "font_size": 8,
+        "font_name": FONT, "font_size": 9,
         "align": "left", "valign": "vcenter",
         "font_color": BLACK, "bg_color": LIGHT_GRAY,
         "text_wrap": True,
         "left": 1, "left_color": GRID_LIGHT,
     })
     value_white_div = wb.add_format({
-        "font_name": FONT, "font_size": 8,
+        "font_name": FONT, "font_size": 9,
         "align": "left", "valign": "vcenter",
         "font_color": BLACK, "bg_color": WHITE,
         "text_wrap": True,
         "left": 1, "left_color": GRID_LIGHT,
     })
-
-    bill_title_fmt = wb.add_format({
-        "font_name": FONT, "font_size": 16, "bold": True,
-        "align": "left", "valign": "top",
-        "font_color": TEAL_2, "bg_color": WHITE
+    email_value_gray_div = wb.add_format({
+        "font_name": FONT, "font_size": 9,
+        "align": "left", "valign": "vcenter",
+        "font_color": TEAL_2, "bg_color": LIGHT_GRAY,
+        "underline": 1,
+        "text_wrap": True,
+        "left": 1, "left_color": GRID_LIGHT,
     })
+    email_value_white_div = wb.add_format({
+        "font_name": FONT, "font_size": 9,
+        "align": "left", "valign": "vcenter",
+        "font_color": TEAL_2, "bg_color": WHITE,
+        "underline": 1,
+        "text_wrap": True,
+        "left": 1, "left_color": GRID_LIGHT,
+    })
+
+    # -------- Bill-to block (single merged cell) --------
     bill_block_fmt = wb.add_format({
-        "font_name": FONT, "font_size": 10, "bold": False,
+        "font_name": FONT, "font_size": 11,
         "align": "left", "valign": "top",
         "font_color": BLACK, "bg_color": WHITE,
-        "text_wrap": True,
+        "text_wrap": True
     })
-    bill_block_bold = wb.add_format({
+    bill_title_bold = wb.add_format({
+        "font_name": FONT, "font_size": 16, "bold": True,
+        "font_color": TEAL_2,
+    })
+    bill_name_bold = wb.add_format({
         "font_name": FONT, "font_size": 12, "bold": True,
-        "align": "left", "valign": "top",
-        "font_color": BLACK, "bg_color": WHITE,
-        "text_wrap": True,
+        "font_color": BLACK,
+    })
+    bill_rfc_label = wb.add_format({
+        "font_name": FONT, "font_size": 12, "bold": True,
+        "font_color": TEAL_2,
+    })
+    bill_rfc_val = wb.add_format({
+        "font_name": FONT, "font_size": 12, "bold": True,
+        "font_color": BLACK,
+    })
+    bill_addr = wb.add_format({
+        "font_name": FONT, "font_size": 11,
+        "font_color": BLACK,
     })
 
+    # -------- Table header --------
     th_fmt = wb.add_format({
-        "font_name": FONT, "font_size": 9, "bold": True,
+        "font_name": FONT, "font_size": 11, "bold": True,
         "align": "center", "valign": "vcenter",
         "font_color": WHITE, "bg_color": TEAL_2,
         "border": 1, "border_color": GRID,
     })
 
+    # -------- Table cells --------
     concept_w = wb.add_format({
-        "font_name": FONT, "font_size": 8,
+        "font_name": FONT, "font_size": 11,
         "align": "left", "valign": "vcenter",
         "font_color": BLACK,
         "text_wrap": True,
@@ -339,7 +370,7 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
         "border": 1, "border_color": GRID,
     })
     concept_g = wb.add_format({
-        "font_name": FONT, "font_size": 8,
+        "font_name": FONT, "font_size": 11,
         "align": "left", "valign": "vcenter",
         "font_color": BLACK,
         "text_wrap": True,
@@ -348,7 +379,7 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
     })
 
     money_w = wb.add_format({
-        "font_name": FONT, "font_size": 8,
+        "font_name": FONT, "font_size": 11,
         "align": "center", "valign": "vcenter",
         "font_color": BLACK,
         "bg_color": WHITE,
@@ -356,23 +387,23 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
         "num_format": f'"{payload.currency_symbol}"#,##0.00'
     })
     money_g = wb.add_format({
-        "font_name": FONT, "font_size": 8,
+        "font_name": FONT, "font_size": 11,
         "align": "center", "valign": "vcenter",
         "font_color": BLACK,
         "bg_color": LIGHT_GRAY,
         "border": 1, "border_color": GRID,
         "num_format": f'"{payload.currency_symbol}"#,##0.00'
     })
-    money_w_red = wb.add_format({
-        "font_name": FONT, "font_size": 8, "bold": True,
+    money_red_w = wb.add_format({
+        "font_name": FONT, "font_size": 11,
         "align": "center", "valign": "vcenter",
         "font_color": RED,
         "bg_color": WHITE,
         "border": 1, "border_color": GRID,
         "num_format": f'"{payload.currency_symbol}"#,##0.00'
     })
-    money_g_red = wb.add_format({
-        "font_name": FONT, "font_size": 8, "bold": True,
+    money_red_g = wb.add_format({
+        "font_name": FONT, "font_size": 11,
         "align": "center", "valign": "vcenter",
         "font_color": RED,
         "bg_color": LIGHT_GRAY,
@@ -381,22 +412,23 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
     })
 
     units_w = wb.add_format({
-        "font_name": FONT, "font_size": 8,
+        "font_name": FONT, "font_size": 11,
         "align": "center", "valign": "vcenter",
         "font_color": BLACK,
         "bg_color": WHITE,
         "border": 1, "border_color": GRID,
     })
     units_g = wb.add_format({
-        "font_name": FONT, "font_size": 8,
+        "font_name": FONT, "font_size": 11,
         "align": "center", "valign": "vcenter",
         "font_color": BLACK,
         "bg_color": LIGHT_GRAY,
         "border": 1, "border_color": GRID,
     })
 
+    # -------- Total formats --------
     total_label_fmt = wb.add_format({
-        "font_name": FONT, "font_size": 18, "bold": True,
+        "font_name": FONT, "font_size": 16, "bold": True,
         "align": "right", "valign": "vcenter",
         "font_color": TEAL_2, "bg_color": WHITE
     })
@@ -407,20 +439,22 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
         "num_format": f'"{payload.currency_symbol}"#,##0.00'
     })
 
-    # -------- Banner (rows 1..3) --------
+    # -----------------------------
+    # BANNER
+    # -----------------------------
     ws.set_row(0, 16)
     ws.set_row(1, 16)
     ws.set_row(2, 16)
     fill_range(ws, 1, 2, 3, 26, banner_fill)  # B1:Z3
 
-    # Date in banner (top-right) — spans X..Z on row 1
-    ws.merge_range(0, 23, 0, 25, payload.date_str, date_in_banner)
+    # Date on banner (top-right but not overlapping ODC box)
+    ws.merge_range(0, 14, 0, 18, payload.date_str, date_banner_fmt)  # O1:S1
 
-    # ODC box top-right within banner (rows 2..3 area visually)
-    ws.merge_range(0, 19, 1, 22, "ODC #:", odc_box_lbl)           # T..W
-    ws.merge_range(0, 23, 1, 25, payload.odc_number, odc_box_val) # X..Z (date is on row 1 only)
+    # ODC box top-right (rows 1..2)
+    ws.merge_range(0, 19, 1, 22, "ODC #:", odc_box_lbl)            # T..W
+    ws.merge_range(0, 23, 1, 25, payload.odc_number, odc_box_val)  # X..Z
 
-    # Insert logo
+    # Logo
     if payload.logo_url:
         try:
             resp = requests.get(payload.logo_url, timeout=15)
@@ -441,7 +475,6 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
                 scale = min(safe_w_px / max(1, w_px), safe_h_px / max(1, h_px))
                 scale = max(0.07, min(scale, 0.095))
                 x_scale = y_scale = scale
-
                 scaled_h = h_px * y_scale
                 y_off = max(0, int((banner_h_px - scaled_h) / 2))
 
@@ -459,81 +492,84 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
         except Exception:
             pass
 
-    # -------- Provider section title --------
-    # Row 4 (Excel): big "DATOS DEL PROVEEDOR" on left
-    ws.set_row(3, 22)
-    ws.merge_range(3, 1, 3, 13, "DATOS DEL PROVEEDOR", section_title)
+    # -----------------------------
+    # PROVIDER TITLE + PROVIDER ROWS (left)
+    # -----------------------------
+    # Row 4: section title
+    ws.set_row(3, 28)  # Excel row 4
+    ws.merge_range(3, 1, 3, 13, "DATOS DEL PROVEEDOR", provider_title_fmt)  # B..N
 
-    # -------- Provider block rows 5..9 (Excel) --------
+    # Resolve provider fields (fallbacks)
+    provider_name = (payload.provider_name or payload.provider or "").strip()
+    provider_rfc = (payload.provider_rfc or "").strip()
+    provider_email = (payload.provider_email or "").strip()
+
     provider_rows = [
-        ("NOMBRE:", payload.provider),
-        ("RFC:", payload.provider_rfc or ""),
-        ("E-MAIL:", payload.provider_email or ""),
+        ("NOMBRE:", provider_name),
+        ("RFC:", provider_rfc),
+        ("E-MAIL:", provider_email),
         ("SERVICIO:", payload.service),
         ("PROYECTO:", payload.project),
     ]
 
+    # Rows 5..9 in Excel
     for i, (lab, val) in enumerate(provider_rows):
         rr = 5 + i
-        ws.set_row(rr - 1, 20)
-        is_gray = (i % 2 == 0)  # starts with gray stripe (looks like template)
+        ws.set_row(rr - 1, 22)
+
+        # stripes start gray on first row? in your example: first looks gray
+        is_gray = (i % 2 == 0)
         fill_range(ws, rr, 2, rr, 14, gray_fill if is_gray else white_bg)
 
         ws.merge_range(rr - 1, 1, rr - 1, 4, lab, label_gray if is_gray else label_white)
-        ws.merge_range(rr - 1, 5, rr - 1, 13, val, value_gray_div if is_gray else value_white_div)
 
-    # -------- Bill-to block (compressed) --------
-    # Title on row 4 (same row as provider title area but right side)
+        # email in teal + underline
+        if lab.startswith("E-MAIL"):
+            ws.merge_range(rr - 1, 5, rr - 1, 13, val, email_value_gray_div if is_gray else email_value_white_div)
+        else:
+            ws.merge_range(rr - 1, 5, rr - 1, 13, val, value_gray_div if is_gray else value_white_div)
+
+    # -----------------------------
+    # BILL-TO BLOCK (right) — single merged cell with rich text
+    # -----------------------------
+    # Merge O4:Z9 (rows 4..9) i.e. Excel rows 4-9 => 0-based rows 3-8
     fill_range(ws, 4, 15, 9, 26, white_bg)
-    ws.merge_range(3, 14, 3, 25, payload.bill_to_title, bill_title_fmt)
+    ws.merge_range(3, 14, 8, 25, "", bill_block_fmt)
 
-    bill_lines = [
-        payload.bill_to_name.strip(),
-        f"RFC: {payload.bill_to_rfc}".strip(),
-        payload.bill_to_address_1.strip(),
-        payload.bill_to_address_2.strip(),
-    ]
-    bill_text = "\n".join([x for x in bill_lines if x])
-
-    # Merge rows 5..9 into one cell O..Z
-    ws.merge_range(4, 14, 8, 25, bill_text, bill_block_fmt)
+    # Write rich text on the top-left cell of that merged area (row=3 col=14)
+    ws.write_rich_string(
+        3, 14,
+        bill_title_bold, payload.bill_to_title + "\n",
+        bill_name_bold, payload.bill_to_name + "\n",
+        bill_rfc_label, "RFC: ",
+        bill_rfc_val, payload.bill_to_rfc + "\n",
+        bill_addr, payload.bill_to_address_1 + "\n",
+        bill_addr, payload.bill_to_address_2,
+        bill_block_fmt
+    )
 
     # Spacer row 10
-    ws.set_row(9, 10)
+    ws.set_row(9, 12)
 
-    # -------- Table header row 11 (Excel) --------
+    # -----------------------------
+    # TABLE HEADER (row 11)
+    # -----------------------------
     header_row = 11
-    ws.set_row(header_row - 1, 26)
+    ws.set_row(header_row - 1, 30)
 
     ws.merge_range(header_row - 1, 1, header_row - 1, 13, "Concepto", th_fmt)
     ws.merge_range(header_row - 1, 14, header_row - 1, 18, "Costo unitario", th_fmt)
     ws.merge_range(header_row - 1, 19, header_row - 1, 21, "Unidades", th_fmt)
     ws.merge_range(header_row - 1, 22, header_row - 1, 25, "Subtotal", th_fmt)
 
-    # -------- Items start row 12 (Excel) --------
+    # -----------------------------
+    # ITEMS (start row 12)
+    # -----------------------------
     start_items = 12
-    base_items = payload.items or []
-
-    # If advance exists: append as line item with negative amount (units=1)
-    adv = safe_float(payload.advance_amount) if payload.advance_amount is not None else 0.0
-    items: List[ODCItem] = list(base_items)
-
-    if adv != 0.0:
-        # Make it negative in the table
-        adv_val = -abs(adv)
-        items.append(ODCItem(
-            concept=f"Anticipo ODC {payload.odc_number}",
-            unit_cost=adv_val,
-            units=1,
-            subtotal=adv_val,
-        ))
-
-    if not items:
-        items = [ODCItem(concept="", unit_cost=0, units=0)]
-
+    items = payload.items or [ODCItem(concept="", unit_cost=0, units=0)]
     max_items = min(len(items), 18)
     wrap_chars = 58
-    min_row_h = 26
+    min_row_h = 28
 
     last_item_row = start_items - 1
     computed_total = 0.0
@@ -552,31 +588,36 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
 
         computed_total += subtotal
 
-        needed = row_height_for_wrapped_text(it.concept, wrap_chars, base_line_height=11.0, extra_lines=0.7)
+        needed = row_height_for_wrapped_text(it.concept, wrap_chars, base_line_height=12.0, extra_lines=0.7)
         ws.set_row(rr - 1, int(max(min_row_h, math.ceil(needed))))
 
+        # negative values in red (like your example)
+        money_fmt = (money_red_g if zebra else money_red_w) if subtotal < 0 or unit_cost < 0 else (money_g if zebra else money_w)
+
         ws.merge_range(rr - 1, 1, rr - 1, 13, it.concept, concept_g if zebra else concept_w)
-
-        # Red formatting for negative (anticipo)
-        is_negative = subtotal < 0 or unit_cost < 0
-        mfmt = (money_g_red if zebra else money_w_red) if is_negative else (money_g if zebra else money_w)
-
-        ws.merge_range(rr - 1, 14, rr - 1, 18, unit_cost, mfmt)
+        ws.merge_range(rr - 1, 14, rr - 1, 18, unit_cost, money_fmt)
         ws.merge_range(rr - 1, 19, rr - 1, 21, units, units_g if zebra else units_w)
-        ws.merge_range(rr - 1, 22, rr - 1, 25, subtotal, mfmt)
+        ws.merge_range(rr - 1, 22, rr - 1, 25, subtotal, money_fmt)
 
         last_item_row = rr
 
-    # -------- TOTAL only (bottom right) --------
-    total_row = last_item_row + 3
-    ws.set_row(total_row - 1, 28)
-    fill_range(ws, total_row, 2, total_row, 26, white_bg)
+    # -----------------------------
+    # TOTAL (only)
+    # -----------------------------
+    total_due = safe_float(payload.total_due) if payload.total_due is not None else computed_total
 
-    ws.merge_range(total_row - 1, 19, total_row - 1, 21, "TOTAL:", total_label_fmt)
-    ws.merge_range(total_row - 1, 22, total_row - 1, 25, computed_total, total_value_fmt)
+    # leave some air like the example
+    tot_row = last_item_row + 3
+    ws.set_row(tot_row - 1, 30)
+    fill_range(ws, tot_row, 2, tot_row, 26, white_bg)
 
-    # ✅ Terms on Page 2
-    terms_start_row = total_row + 6
+    ws.merge_range(tot_row - 1, 18, tot_row - 1, 21, "TOTAL:", total_label_fmt)     # S..V
+    ws.merge_range(tot_row - 1, 22, tot_row - 1, 25, total_due, total_value_fmt)   # W..Z
+
+    # -----------------------------
+    # TERMS PAGE (Page 2)
+    # -----------------------------
+    terms_start_row = tot_row + 6
     terms_end_row = add_terms_page(
         ws,
         wb,
@@ -588,13 +629,15 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
         GRID_LIGHT=GRID_LIGHT,
     )
 
-    # -------- Print settings --------
+    # -----------------------------
+    # PRINT SETTINGS
+    # -----------------------------
     ws.set_portrait()
     ws.set_paper(9)  # A4
     ws.set_margins(left=0.25, right=0.25, top=0.35, bottom=0.35)
     ws.fit_to_pages(1, 0)
 
-    ws.print_area(range_a1(1, 1, terms_end_row + 2, 26))
+    ws.print_area(range_a1(1, 1, terms_end_row + 2, 26))  # A1:Z...
 
     wb.close()
     return out.getvalue()
