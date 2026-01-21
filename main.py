@@ -277,7 +277,7 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
 
     # -------- Provider section title --------
     provider_title_fmt = wb.add_format({
-        "font_name": FONT, "font_size": 16, "bold": True,
+        "font_name": FONT, "font_size": 14, "bold": True,
         "align": "left", "valign": "vcenter",
         "font_color": TEAL_2, "bg_color": WHITE,
     })
@@ -336,19 +336,19 @@ def build_odc_excel(payload: ODCPayload) -> bytes:
         "font_color": TEAL_2,
     })
     bill_name_bold = wb.add_format({
-        "font_name": FONT, "font_size": 12, "bold": True,
+        "font_name": FONT, "font_size": 10, "bold": True,
         "font_color": BLACK,
     })
     bill_rfc_label = wb.add_format({
-        "font_name": FONT, "font_size": 12, "bold": True,
+        "font_name": FONT, "font_size": 10, "bold": True,
         "font_color": TEAL_2,
     })
     bill_rfc_val = wb.add_format({
-        "font_name": FONT, "font_size": 12, "bold": True,
+        "font_name": FONT, "font_size": 10, "bold": True,
         "font_color": BLACK,
     })
     bill_addr = wb.add_format({
-        "font_name": FONT, "font_size": 11,
+        "font_name": FONT, "font_size": 9,
         "font_color": BLACK,
     })
 
